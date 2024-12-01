@@ -34,10 +34,14 @@ fn main() -> Result<(), String> {
     let mut event_pump = sdl_context.event_pump()?;
 
     // Set the initial position of the circle
-    let mut player_pos = (640.0, 360.0);
+    let mut player_pos = (
+        canvas.window().size().0 as f32 / 2.0,
+        canvas.window().size().1 as f32 / 2.0,
+    );
     let mut player_direction = (0.0, 0.0);
-    let player_radius = 12.0;
-    let speed = 15.0; // Pixels per second
+    let player_radius = 24.0;
+    let player_diameter = player_radius * 2.0;
+    let speed = player_radius / 2.0; // Pixels per second
 
     let mut last_time = std::time::Instant::now();
 
@@ -55,6 +59,12 @@ fn main() -> Result<(), String> {
 
         handle_keypress(&mut player_direction, &event_pump);
         update_player_position(&mut player_pos, &player_direction, speed);
+        handle_player_screen_wrapping(
+            &mut player_pos,
+            player_diameter,
+            canvas.window().size().0 as f32,
+            canvas.window().size().1 as f32,
+        );
 
         // Clear the screen
         canvas.set_draw_color(Color::RGB(0, 0, 0)); // Purple background
@@ -163,4 +173,29 @@ fn render_player_position_hud(
     );
 
     canvas.copy(&texture, None, dst_rect).unwrap();
+}
+
+fn handle_player_screen_wrapping(
+    player_pos: &mut (f32, f32),
+    player_diameter: f32,
+    screen_width: f32,
+    screen_height: f32,
+) {
+    let radius = player_diameter / 2.0;
+    // west border
+    if player_pos.0 < -player_diameter {
+        player_pos.0 = screen_width + radius;
+    }
+    // east border
+    else if player_pos.0 > screen_width + player_diameter {
+        player_pos.0 = -radius;
+    }
+    // north border
+    else if player_pos.1 < -player_diameter {
+        player_pos.1 = screen_height + radius;
+    }
+    // south border
+    else if player_pos.1 > screen_height + player_diameter {
+        player_pos.1 = -radius;
+    }
 }
