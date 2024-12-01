@@ -8,7 +8,8 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::ttf::Font;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 fn main() -> Result<(), String> {
     // Initialize SDL2
@@ -49,6 +50,8 @@ fn main() -> Result<(), String> {
     );
     let mut player_direction = (0.0, 0.0);
 
+    let mut tile_lights: HashMap<(usize, usize), TileLight> = HashMap::new();
+
     'running: loop {
         //let current_time = std::time::Instant::now();
         //let dt = current_time.duration_since(last_time).as_secs_f32();
@@ -84,6 +87,20 @@ fn main() -> Result<(), String> {
             1.0,
         )?;
 
+        // Light up the tile where the player is located
+        let player_tile = get_tile(&player_pos, tile_width, tile_height);
+        light_up_tile(
+            &mut canvas,
+            player_tile,
+            tile_width,
+            tile_height,
+            1000,
+            &mut tile_lights,
+        );
+
+        // Update and draw lit tiles
+        update_tile_lights(&mut canvas, tile_width, tile_height, &mut tile_lights);
+
         // Draw the circle
         draw_circle(
             &mut canvas,
@@ -91,7 +108,7 @@ fn main() -> Result<(), String> {
             player_radius as f32,
         )?;
 
-        render_player_position_hud(&mut canvas, &player_pos, &font);
+        render_player_position_hud(&mut canvas, &player_pos, &font, tile_width, tile_height);
 
         // Present the canvas
         canvas.present();
@@ -193,10 +210,14 @@ fn render_player_position_hud(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     player_pos: &(f32, f32),
     font: &Font,
+    tile_width: f32,
+    tile_height: f32,
 ) {
+    let tile = get_tile(player_pos, tile_width, tile_height);
+
     let player_text = format!(
-        "Pos: ({:03}, {:03})",
-        player_pos.0 as i32, player_pos.1 as i32
+        "Pos: ({:03}, {:03}) Tile: ({:02}, {:02})",
+        player_pos.0 as i32, player_pos.1 as i32, tile.0, tile.1
     );
 
     // Create a surface with the text
@@ -250,4 +271,64 @@ fn handle_player_screen_wrapping(
     else if player_pos.1 > screen_height + player_diameter {
         player_pos.1 = -radius;
     }
+}
+
+fn get_tile(pos: &(f32, f32), tile_width: f32, tile_height: f32) -> (usize, usize) {
+    let (x, y) = pos;
+    let col = (x / tile_width).floor() as usize;
+    let row = (y / tile_height).floor() as usize;
+    (col, row)
+}
+
+struct TileLight {
+    start_time: Instant,
+    duration: Duration,
+}
+
+fn light_up_tile(
+    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    tile_pos: (usize, usize),
+    tile_width: f32,
+    tile_height: f32,
+    duration: u64,
+    tile_lights: &mut HashMap<(usize, usize), TileLight>,
+) {
+    let now = Instant::now();
+    let duration = Duration::from_millis(duration);
+    tile_lights.insert(
+        tile_pos,
+        TileLight {
+            start_time: now,
+            duration,
+        },
+    );
+}
+
+fn update_tile_lights(
+    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    tile_width: f32,
+    tile_height: f32,
+    tile_lights: &mut HashMap<(usize, usize), TileLight>,
+) {
+    let now = Instant::now();
+    tile_lights.retain(|&(col, row), tile_light| {
+        let elapsed = now.duration_since(tile_light.start_time);
+        if elapsed < tile_light.duration {
+            let progress = elapsed.as_secs_f32() / tile_light.duration.as_secs_f32();
+            let brightness = (1.0 - progress) * 255.0;
+            canvas.set_draw_color(Color::RGB(
+                brightness as u8,
+                brightness as u8,
+                brightness as u8,
+            ));
+            let x = (col as f32 * tile_width) as i32;
+            let y = (row as f32 * tile_height) as i32;
+            canvas
+                .fill_rect(Rect::new(x, y, tile_width as u32, tile_height as u32))
+                .unwrap();
+            true
+        } else {
+            false
+        }
+    });
 }
