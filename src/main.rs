@@ -1,7 +1,7 @@
+// so ssl2 and ssl2_fft are found by the rust compiler on macos
 // export LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"
 // export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
 // export C_INCLUDE_PATH="/opt/homebrew/include:$C_INCLUDE_PATH"
-//
 //
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -19,9 +19,18 @@ fn main() -> Result<(), String> {
     let font_path = "./font.ttf"; // Replace with a valid TTF font path
     let font = ttf_context.load_font(font_path, 24)?;
 
+    let player_radius = 12.0;
+    let player_diameter = player_radius * 2.0;
+    let speed = player_radius / 2.0; // Pixels per second
+    let tile_width = player_radius * 2.0;
+    let tile_height = player_radius * 2.0;
+
+    let grid_width = tile_width * 34.0;
+    let grid_height = tile_height * 34.0;
+
     // Create a window
     let window = video_subsystem
-        .window("Pacman", 850, 850)
+        .window("Pacman", grid_width as u32, grid_height as u32)
         .position_centered()
         .build()
         .map_err(|e| e.to_string())?;
@@ -39,16 +48,11 @@ fn main() -> Result<(), String> {
         canvas.window().size().1 as f32 / 2.0,
     );
     let mut player_direction = (0.0, 0.0);
-    let player_radius = 24.0;
-    let player_diameter = player_radius * 2.0;
-    let speed = player_radius / 2.0; // Pixels per second
-
-    let mut last_time = std::time::Instant::now();
 
     'running: loop {
-        let current_time = std::time::Instant::now();
-        let dt = current_time.duration_since(last_time).as_secs_f32();
-        last_time = current_time;
+        //let current_time = std::time::Instant::now();
+        //let dt = current_time.duration_since(last_time).as_secs_f32();
+        //last_time = current_time;
 
         // Handle events
         for event in event_pump.poll_iter() {
@@ -70,7 +74,15 @@ fn main() -> Result<(), String> {
         canvas.set_draw_color(Color::RGB(0, 0, 0)); // Purple background
         canvas.clear();
 
-        render_player_position_hud(&mut canvas, &player_pos, &font);
+        // Draw the grid
+        draw_grid(
+            &mut canvas,
+            tile_width,
+            tile_height,
+            grid_width,
+            grid_height,
+            1.0,
+        )?;
 
         // Draw the circle
         draw_circle(
@@ -79,11 +91,48 @@ fn main() -> Result<(), String> {
             player_radius as f32,
         )?;
 
+        render_player_position_hud(&mut canvas, &player_pos, &font);
+
         // Present the canvas
         canvas.present();
 
         // Delay to cap the frame rate at ~60 FPS
         std::thread::sleep(Duration::from_millis(16));
+    }
+
+    Ok(())
+}
+
+fn draw_grid(
+    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    tile_width: f32,
+    tile_height: f32,
+    grid_width: f32,
+    grid_height: f32,
+    grid_line_thickness: f32,
+) -> Result<(), String> {
+    canvas.set_draw_color(Color::RGB(255, 255, 255)); // White lines
+
+    // Draw vertical lines
+    for col in 0..=grid_width as i32 {
+        let x = (col as f32 * tile_width) as i32;
+        canvas.fill_rect(Rect::new(
+            x,
+            0,
+            grid_line_thickness as u32,
+            (grid_height * tile_height) as u32,
+        ))?;
+    }
+
+    // Draw horizontal lines
+    for row in 0..=grid_height as i32 {
+        let y = (row as f32 * tile_height) as i32;
+        canvas.fill_rect(Rect::new(
+            0,
+            y,
+            (grid_width * tile_width) as u32,
+            grid_line_thickness as u32,
+        ))?;
     }
 
     Ok(())
@@ -145,7 +194,10 @@ fn render_player_position_hud(
     player_pos: &(f32, f32),
     font: &Font,
 ) {
-    let player_text = format!("Pos: ({:.1}, {:.1})", player_pos.0, player_pos.1);
+    let player_text = format!(
+        "Pos: ({:03}, {:03})",
+        player_pos.0 as i32, player_pos.1 as i32
+    );
 
     // Create a surface with the text
     let surface = font
