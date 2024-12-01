@@ -22,7 +22,7 @@ fn main() -> Result<(), String> {
 
     let player_radius = 12.0;
     let player_diameter = player_radius * 2.0;
-    let speed = player_radius / 2.0; // Pixels per second
+    let speed = player_radius / 3.0; // Pixels per second
     let tile_width = player_radius * 2.0;
     let tile_height = player_radius * 2.0;
 
@@ -49,6 +49,7 @@ fn main() -> Result<(), String> {
         canvas.window().size().1 as f32 / 2.0,
     );
     let mut player_direction = (0.0, 0.0);
+    let mut last_direction = player_direction;
 
     let mut tile_lights: HashMap<(usize, usize), TileLight> = HashMap::new();
 
@@ -65,7 +66,43 @@ fn main() -> Result<(), String> {
         }
 
         handle_keypress(&mut player_direction, &event_pump);
-        update_player_position(&mut player_pos, &player_direction, speed);
+
+        // Light up the tile where the player is located
+        let player_tile = get_tile(&player_pos, tile_width, tile_height, player_radius);
+        if let Some(tile) = player_tile {
+            light_up_tile(
+                &mut canvas,
+                tile,
+                tile_width,
+                tile_height,
+                2000,
+                &mut tile_lights,
+            );
+        }
+
+        update_player_position(
+            &mut player_pos,
+            &player_direction,
+            speed,
+            tile_width,
+            tile_height,
+        );
+
+        // Check if the direction has changed
+        if player_direction != last_direction {
+            if player_direction.0 != 0.0 {
+                // Moving horizontally, re-center y position
+                player_pos.0 =
+                    ((player_pos.0 / tile_width).round() * tile_width) + tile_width / 2.0;
+            }
+            if player_direction.1 != 0.0 {
+                // Moving vertically, re-center x position
+                player_pos.1 =
+                    ((player_pos.1 / tile_height).round() * tile_height) + tile_height / 2.0;
+            }
+            last_direction = player_direction;
+        }
+
         handle_player_screen_wrapping(
             &mut player_pos,
             player_diameter,
@@ -87,20 +124,6 @@ fn main() -> Result<(), String> {
             1.0,
         )?;
 
-        // Light up the tile where the player is located
-        let player_tile = get_tile(&player_pos, tile_width, tile_height);
-        light_up_tile(
-            &mut canvas,
-            player_tile,
-            tile_width,
-            tile_height,
-            1000,
-            &mut tile_lights,
-        );
-
-        // Update and draw lit tiles
-        update_tile_lights(&mut canvas, tile_width, tile_height, &mut tile_lights);
-
         // Draw the circle
         draw_circle(
             &mut canvas,
@@ -108,7 +131,17 @@ fn main() -> Result<(), String> {
             player_radius as f32,
         )?;
 
-        render_player_position_hud(&mut canvas, &player_pos, &font, tile_width, tile_height);
+        // Update and draw lit tiles
+        update_tile_lights(&mut canvas, tile_width, tile_height, &mut tile_lights);
+
+        render_player_position_hud(
+            &mut canvas,
+            &player_pos,
+            &font,
+            tile_width,
+            tile_height,
+            player_radius,
+        );
 
         // Present the canvas
         canvas.present();
@@ -201,7 +234,13 @@ fn handle_keypress(player_direction: &mut (f32, f32), event_pump: &sdl2::EventPu
     }
 }
 
-fn update_player_position(player_pos: &mut (f32, f32), player_direction: &(f32, f32), speed: f32) {
+fn update_player_position(
+    player_pos: &mut (f32, f32),
+    player_direction: &(f32, f32),
+    speed: f32,
+    tile_width: f32,
+    tile_height: f32,
+) {
     player_pos.0 += speed * player_direction.0;
     player_pos.1 += speed * player_direction.1;
 }
@@ -212,12 +251,17 @@ fn render_player_position_hud(
     font: &Font,
     tile_width: f32,
     tile_height: f32,
+    player_radius: f32,
 ) {
-    let tile = get_tile(player_pos, tile_width, tile_height);
+    let tile = get_tile(player_pos, tile_width, tile_height, player_radius);
+    let mut tile_text = String::from("Tile: (???, ???)");
+    if let Some(tile) = tile {
+        tile_text = format!("Tile: ({:02}, {:02})", tile.0, tile.1);
+    }
 
     let player_text = format!(
-        "Pos: ({:03}, {:03}) Tile: ({:02}, {:02})",
-        player_pos.0 as i32, player_pos.1 as i32, tile.0, tile.1
+        "Pos: ({:03}, {:03}) {}",
+        player_pos.0 as i32, player_pos.1 as i32, tile_text
     );
 
     // Create a surface with the text
@@ -273,11 +317,27 @@ fn handle_player_screen_wrapping(
     }
 }
 
-fn get_tile(pos: &(f32, f32), tile_width: f32, tile_height: f32) -> (usize, usize) {
+fn get_tile(
+    pos: &(f32, f32),
+    tile_width: f32,
+    tile_height: f32,
+    player_radius: f32,
+) -> Option<(usize, usize)> {
     let (x, y) = pos;
     let col = (x / tile_width).floor() as usize;
     let row = (y / tile_height).floor() as usize;
-    (col, row)
+
+    let tile_center_x = (col as f32 + 0.5) * tile_width;
+    let tile_center_y = (row as f32 + 0.5) * tile_height;
+
+    let distance_x = (x - tile_center_x).abs();
+    let distance_y = (y - tile_center_y).abs();
+
+    if distance_x <= player_radius && distance_y <= player_radius {
+        Some((col, row))
+    } else {
+        None
+    }
 }
 
 struct TileLight {
