@@ -1,4 +1,4 @@
-// so ssl2 and ssl2_fft are found by the rust compiler on macos
+// so ssl2 and ssl2_fft are found by the rust compiler on macOS
 // export LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"
 // export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
 // export C_INCLUDE_PATH="/opt/homebrew/include:$C_INCLUDE_PATH"
@@ -10,6 +10,7 @@ use sdl2::rect::Rect;
 use sdl2::ttf::Font;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use sdl2::render::WindowCanvas;
 
 fn main() -> Result<(), String> {
     // Initialize SDL2
@@ -51,7 +52,11 @@ fn main() -> Result<(), String> {
     let mut player_direction = (0.0, 0.0);
     let mut last_direction = player_direction;
 
-    let mut tile_lights: HashMap<(usize, usize), PacmanScent> = HashMap::new();
+    let mut tile_scents: HashMap<(usize, usize), PacmanScent> = HashMap::new();
+
+    let mut pacman_mouth_angle = 45.0; // Degrees
+    let mut pacman_mouth_opening = false;
+    let mut pacman_mouth_speed = 5.0; // degrees per second (could increase as pacman gets faster)
 
     'running: loop {
         //let current_time = std::time::Instant::now();
@@ -73,7 +78,7 @@ fn main() -> Result<(), String> {
             light_up_tile(
                 tile,
                 2000,
-                &mut tile_lights,
+                &mut tile_scents,
             );
         }
 
@@ -83,20 +88,7 @@ fn main() -> Result<(), String> {
             speed
         );
 
-        // Check if the direction has changed
-        if player_direction != last_direction {
-            if player_direction.0 != 0.0 {
-                // Moving horizontally, re-center y position
-                player_pos.0 =
-                    ((player_pos.0 / tile_width).round() * tile_width) + tile_width / 2.0;
-            }
-            if player_direction.1 != 0.0 {
-                // Moving vertically, re-center x position
-                player_pos.1 =
-                    ((player_pos.1 / tile_height).round() * tile_height) + tile_height / 2.0;
-            }
-            last_direction = player_direction;
-        }
+        adjust_player_position_delete_me_later(tile_width, tile_height, &mut player_pos, &mut player_direction, &mut last_direction);
 
         handle_player_screen_wrapping(
             &mut player_pos,
@@ -106,8 +98,7 @@ fn main() -> Result<(), String> {
         );
 
         // Clear the screen
-        canvas.set_draw_color(Color::RGB(0, 0, 0)); // Purple background
-        canvas.clear();
+        clear_background(&mut canvas);
 
         // Draw the grid
         draw_grid(
@@ -120,15 +111,21 @@ fn main() -> Result<(), String> {
         )?;
 
         // Draw the circle
-        draw_circle(
+        draw_pacman(
             &mut canvas,
             (player_pos.0, player_pos.1),
             player_radius,
+            pacman_mouth_angle,
+            player_direction
         )?;
 
-        // Update and draw lit tiles
-        update_tile_lights(&mut canvas, tile_width, tile_height, &mut tile_lights);
+        // Update the mouth angle
+        update_pacman_mouth_angle(&mut pacman_mouth_opening, &mut pacman_mouth_angle, pacman_mouth_speed);
 
+        // Update and draw lit tiles
+        update_tile_scent(&mut canvas, tile_width, tile_height, &mut tile_scents, false);
+
+        // Render the player's position as text
         render_player_position_hud(
             &mut canvas,
             &player_pos,
@@ -146,6 +143,44 @@ fn main() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn adjust_player_position_delete_me_later(tile_width: f32, tile_height: f32, player_pos: &mut (f32, f32), player_direction: &mut (f32, f32), last_direction: &mut (f32, f32)) {
+    // Check if the direction has changed
+    if *player_direction != *last_direction {
+        if player_direction.0 != 0.0 {
+            // Moving horizontally, re-center y position
+            player_pos.0 =
+                ((player_pos.0 / tile_width).round() * tile_width) + tile_width / 2.0;
+        }
+        if player_direction.1 != 0.0 {
+            // Moving vertically, re-center x position
+            player_pos.1 =
+                ((player_pos.1 / tile_height).round() * tile_height) + tile_height / 2.0;
+        }
+        *last_direction = *player_direction;
+    }
+}
+
+fn clear_background(canvas: &mut WindowCanvas) {
+    canvas.set_draw_color(Color::RGB(0, 0, 0)); // Purple background
+    canvas.clear();
+}
+
+fn update_pacman_mouth_angle(pacman_mouth_opening: &mut bool, pacman_mouth_angle: &mut f32, pacman_mouth_speed: f32) {
+    if *pacman_mouth_opening {
+        *pacman_mouth_angle += pacman_mouth_speed;
+        if *pacman_mouth_angle >= 70.0 {
+            *pacman_mouth_angle = 70.0;
+            *pacman_mouth_opening = false;
+        }
+    } else {
+        *pacman_mouth_angle -= pacman_mouth_speed;
+        if *pacman_mouth_angle  <= 5.0 {
+            *pacman_mouth_angle = 5.0;
+            *pacman_mouth_opening = true;
+        }
+    }
 }
 
 fn draw_grid(
@@ -183,25 +218,64 @@ fn draw_grid(
     Ok(())
 }
 
-fn draw_circle(
+fn draw_pacman(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     center: (f32, f32),
     radius: f32,
+    mouth_angle: f32,
+    player_direction: (f32, f32),
 ) -> Result<(), String> {
     let (cx, cy) = center;
     let r = radius as i32;
+
+    // Helper function to compute minimal angle difference
+    fn angle_diff(a: f32, b: f32) -> f32 {
+        let mut diff = a - b;
+        while diff < -180.0 {
+            diff += 360.0;
+        }
+        while diff > 180.0 {
+            diff -= 360.0;
+        }
+        diff.abs()
+    }
+
+    // Determine the desired angle based on player direction
+    let desired_angle = if player_direction.0 == 1.0 {
+        0.0
+    } else if player_direction.0 == -1.0 {
+        180.0
+    } else if player_direction.1 == -1.0 {
+        -90.0
+    } else if player_direction.1 == 1.0 {
+        90.0
+    } else {
+        0.0 // Default to facing right if no direction
+    };
+
     for w in 0..r * 2 {
         for h in 0..r * 2 {
-            let dx = r - w; // Horizontal offset
-            let dy = r - h; // Vertical offset
-            if dx * dx + dy * dy <= r * r {
-                canvas.set_draw_color(Color::RGB(255, 255, 0)); // Red circle
+            let dx = w - r; // Horizontal offset from center
+            let dy = h - r; // Vertical offset from center
+
+            // Convert dx and dy to få2
+            let dx_f32 = dx as f32;
+            let dy_f32 = dy as f32;
+
+            // Compute angle from positive x-axis to point (dx, dy)
+            let angle = dy_f32.atan2(dx_f32).to_degrees();
+            let delta_angle = angle_diff(angle, desired_angle);
+
+            // Check if the point is outside the mouth's opening
+            if dx * dx + dy * dy <= r * r && delta_angle > mouth_angle / 2.0 {
+                canvas.set_draw_color(Color::RGB(255, 255, 0)); // Yellow circle
                 canvas.draw_point((cx as i32 + dx, cy as i32 + dy))?;
             }
         }
     }
     Ok(())
 }
+
 
 fn handle_keypress(player_direction: &mut (f32, f32), event_pump: &sdl2::EventPump) {
     // Handle key presses
@@ -274,7 +348,7 @@ fn render_player_position_hud(
     let text_height = surface.height();
     let window_width = canvas.viewport().width();
 
-    // Draw the text at the top-right corner
+    // Draw the text in the top-right corner
     let dst_rect = Rect::new(
         (window_width - text_width) as i32 - 10, // 10px padding
         10,                                      // 10px from the top
@@ -354,28 +428,31 @@ fn light_up_tile(
     );
 }
 
-fn update_tile_lights(
+fn update_tile_scent(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     tile_width: f32,
     tile_height: f32,
     tile_lights: &mut HashMap<(usize, usize), PacmanScent>,
+    render_scent: bool,
 ) {
     let now = Instant::now();
     tile_lights.retain(|&(col, row), tile_light| {
         let elapsed = now.duration_since(tile_light.start_time);
         if elapsed < tile_light.duration {
-            let progress = elapsed.as_secs_f32() / tile_light.duration.as_secs_f32();
-            let brightness = (1.0 - progress) * 200.0;
-            canvas.set_draw_color(Color::RGB(
-                brightness as u8,
-                brightness as u8,
-                brightness as u8,
-            ));
-            let x = (col as f32 * tile_width) as i32;
-            let y = (row as f32 * tile_height) as i32;
-            canvas
-                .fill_rect(Rect::new(x, y, tile_width as u32, tile_height as u32))
-                .unwrap();
+            if render_scent {
+                let progress = elapsed.as_secs_f32() / tile_light.duration.as_secs_f32();
+                let brightness = (1.0 - progress) * 200.0;
+                canvas.set_draw_color(Color::RGB(
+                    brightness as u8,
+                    brightness as u8,
+                    brightness as u8,
+                ));
+                let x = (col as f32 * tile_width) as i32;
+                let y = (row as f32 * tile_height) as i32;
+                canvas
+                    .fill_rect(Rect::new(x, y, tile_width as u32, tile_height as u32))
+                    .unwrap();
+            }
             true
         } else {
             false
