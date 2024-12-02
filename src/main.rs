@@ -71,10 +71,7 @@ fn main() -> Result<(), String> {
         let player_tile = get_tile(&player_pos, tile_width, tile_height, player_radius);
         if let Some(tile) = player_tile {
             light_up_tile(
-                &mut canvas,
                 tile,
-                tile_width,
-                tile_height,
                 2000,
                 &mut tile_lights,
             );
@@ -83,9 +80,7 @@ fn main() -> Result<(), String> {
         update_player_position(
             &mut player_pos,
             &player_direction,
-            speed,
-            tile_width,
-            tile_height,
+            speed
         );
 
         // Check if the direction has changed
@@ -127,8 +122,8 @@ fn main() -> Result<(), String> {
         // Draw the circle
         draw_circle(
             &mut canvas,
-            (player_pos.0 as f32, player_pos.1 as f32),
-            player_radius as f32,
+            (player_pos.0, player_pos.1),
+            player_radius,
         )?;
 
         // Update and draw lit tiles
@@ -237,9 +232,7 @@ fn handle_keypress(player_direction: &mut (f32, f32), event_pump: &sdl2::EventPu
 fn update_player_position(
     player_pos: &mut (f32, f32),
     player_direction: &(f32, f32),
-    speed: f32,
-    tile_width: f32,
-    tile_height: f32,
+    speed: f32
 ) {
     player_pos.0 += speed * player_direction.0;
     player_pos.1 += speed * player_direction.1;
@@ -346,10 +339,7 @@ struct PacmanScent {
 }
 
 fn light_up_tile(
-    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     tile_pos: (usize, usize),
-    tile_width: f32,
-    tile_height: f32,
     duration: u64,
     tile_lights: &mut HashMap<(usize, usize), PacmanScent>,
 ) {
