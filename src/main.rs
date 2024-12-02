@@ -51,7 +51,7 @@ fn main() -> Result<(), String> {
     let mut player_direction = (0.0, 0.0);
     let mut last_direction = player_direction;
 
-    let mut tile_lights: HashMap<(usize, usize), TileLight> = HashMap::new();
+    let mut tile_lights: HashMap<(usize, usize), PacmanScent> = HashMap::new();
 
     'running: loop {
         //let current_time = std::time::Instant::now();
@@ -340,7 +340,7 @@ fn get_tile(
     }
 }
 
-struct TileLight {
+struct PacmanScent {
     start_time: Instant,
     duration: Duration,
 }
@@ -351,13 +351,13 @@ fn light_up_tile(
     tile_width: f32,
     tile_height: f32,
     duration: u64,
-    tile_lights: &mut HashMap<(usize, usize), TileLight>,
+    tile_lights: &mut HashMap<(usize, usize), PacmanScent>,
 ) {
     let now = Instant::now();
     let duration = Duration::from_millis(duration);
     tile_lights.insert(
         tile_pos,
-        TileLight {
+        PacmanScent {
             start_time: now,
             duration,
         },
@@ -368,14 +368,14 @@ fn update_tile_lights(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     tile_width: f32,
     tile_height: f32,
-    tile_lights: &mut HashMap<(usize, usize), TileLight>,
+    tile_lights: &mut HashMap<(usize, usize), PacmanScent>,
 ) {
     let now = Instant::now();
     tile_lights.retain(|&(col, row), tile_light| {
         let elapsed = now.duration_since(tile_light.start_time);
         if elapsed < tile_light.duration {
             let progress = elapsed.as_secs_f32() / tile_light.duration.as_secs_f32();
-            let brightness = (1.0 - progress) * 255.0;
+            let brightness = (1.0 - progress) * 200.0;
             canvas.set_draw_color(Color::RGB(
                 brightness as u8,
                 brightness as u8,
