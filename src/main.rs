@@ -7,10 +7,21 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
+use sdl2::render::WindowCanvas;
 use sdl2::ttf::Font;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use sdl2::render::WindowCanvas;
+
+#[derive(Clone, Copy, PartialEq)]
+enum MazeTile {
+    Empty,          // Open space (Pac-Man can move here)
+    WallVertical,   // | (vertical wall)
+    WallHorizontal, // - (horizontal wall)
+    WallCornerNE,   // ⌜ (northeast corner)
+    WallCornerNW,   // ⌝ (northwest corner)
+    WallCornerSE,   // ⌞ (southeast corner)
+    WallCornerSW,   // ⌟ (southwest corner)
+}
 
 fn main() -> Result<(), String> {
     // Initialize SDL2
@@ -58,6 +69,8 @@ fn main() -> Result<(), String> {
     let mut pacman_mouth_opening = false;
     let mut pacman_mouth_speed = 5.0; // degrees per second (could increase as pacman gets faster)
 
+    let maze = initialize_maze();
+
     'running: loop {
         //let current_time = std::time::Instant::now();
         //let dt = current_time.duration_since(last_time).as_secs_f32();
@@ -75,20 +88,27 @@ fn main() -> Result<(), String> {
         // Light up the tile where the player is located
         let player_tile = get_tile(&player_pos, tile_width, tile_height, player_radius);
         if let Some(tile) = player_tile {
-            light_up_tile(
-                tile,
-                2000,
-                &mut tile_scents,
-            );
+            light_up_tile(tile, 2000, &mut tile_scents);
         }
 
+        // update_player_position(&mut player_pos, &player_direction, speed);
         update_player_position(
             &mut player_pos,
             &player_direction,
-            speed
+            speed,
+            &maze,
+            tile_width,
+            tile_height,
+            player_radius,
         );
 
-        adjust_player_position_delete_me_later(tile_width, tile_height, &mut player_pos, &mut player_direction, &mut last_direction);
+        adjust_player_position_delete_me_later(
+            tile_width,
+            tile_height,
+            &mut player_pos,
+            &mut player_direction,
+            &mut last_direction,
+        );
 
         handle_player_screen_wrapping(
             &mut player_pos,
@@ -110,20 +130,32 @@ fn main() -> Result<(), String> {
             1.0,
         )?;
 
+        draw_maze(&mut canvas, &maze, tile_width, tile_height)?;
+
         // Draw the circle
         draw_pacman(
             &mut canvas,
             (player_pos.0, player_pos.1),
             player_radius,
             pacman_mouth_angle,
-            player_direction
+            player_direction,
         )?;
 
         // Update the mouth angle
-        update_pacman_mouth_angle(&mut pacman_mouth_opening, &mut pacman_mouth_angle, pacman_mouth_speed);
+        update_pacman_mouth_angle(
+            &mut pacman_mouth_opening,
+            &mut pacman_mouth_angle,
+            pacman_mouth_speed,
+        );
 
         // Update and draw lit tiles
-        update_tile_scent(&mut canvas, tile_width, tile_height, &mut tile_scents, false);
+        update_tile_scent(
+            &mut canvas,
+            tile_width,
+            tile_height,
+            &mut tile_scents,
+            false,
+        );
 
         // Render the player's position as text
         render_player_position_hud(
@@ -143,20 +175,153 @@ fn main() -> Result<(), String> {
     }
 
     Ok(())
+} // main
+
+// Add this near the top of main.rs
+fn initialize_maze() -> Vec<Vec<MazeTile>> {
+    let width = 34;
+    let height = 34;
+    let mut maze = vec![vec![MazeTile::Empty; width]; height];
+
+    // Simple test maze: a box around the edges
+    for x in 0..width {
+        maze[0][x] = MazeTile::WallHorizontal; // Top edge
+        maze[height - 1][x] = MazeTile::WallHorizontal; // Bottom edge
+    }
+    for y in 0..height {
+        maze[y][0] = MazeTile::WallVertical; // Left edge
+        maze[y][width - 1] = MazeTile::WallVertical; // Right edge
+    }
+    // Corners
+    maze[0][0] = MazeTile::WallCornerNW;
+    maze[0][width - 1] = MazeTile::WallCornerNE;
+    maze[height - 1][0] = MazeTile::WallCornerSW;
+    maze[height - 1][width - 1] = MazeTile::WallCornerSE;
+
+    // Add a few internal walls for testing
+    maze[5][5] = MazeTile::WallVertical;
+    maze[5][6] = MazeTile::WallVertical;
+    maze[6][5] = MazeTile::WallHorizontal;
+    maze[6][6] = MazeTile::WallCornerSE;
+
+    maze
+} // initialize_maze
+
+fn draw_maze(
+    canvas: &mut WindowCanvas,
+    maze: &Vec<Vec<MazeTile>>,
+    tile_width: f32,
+    tile_height: f32,
+) -> Result<(), String> {
+    canvas.set_draw_color(Color::RGB(0, 0, 255)); // Blue walls
+
+    let wall_thickness = (tile_width / 4.0) as u32; // Thinner walls
+
+    for (y, row) in maze.iter().enumerate() {
+        for (x, tile) in row.iter().enumerate() {
+            let x_pos = (x as f32 * tile_width) as i32;
+            let y_pos = (y as f32 * tile_height) as i32;
+
+            match tile {
+                MazeTile::WallVertical => {
+                    canvas.fill_rect(Rect::new(
+                        x_pos + (tile_width / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        y_pos,
+                        wall_thickness,
+                        tile_height as u32,
+                    ))?;
+                }
+                MazeTile::WallHorizontal => {
+                    canvas.fill_rect(Rect::new(
+                        x_pos,
+                        y_pos + (tile_height / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        tile_width as u32,
+                        wall_thickness,
+                    ))?;
+                }
+                MazeTile::WallCornerNW => {
+                    // Top-left corner: vertical down from top, horizontal right
+                    canvas.fill_rect(Rect::new(
+                        x_pos + (tile_width / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        y_pos,
+                        wall_thickness,
+                        (tile_height / 2.0) as u32 + wall_thickness / 2,
+                    ))?;
+                    canvas.fill_rect(Rect::new(
+                        x_pos,
+                        y_pos + (tile_height / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        (tile_width / 2.0) as u32 + wall_thickness / 2,
+                        wall_thickness,
+                    ))?;
+                }
+                MazeTile::WallCornerNE => {
+                    // Top-right corner: vertical down from top, horizontal left
+                    canvas.fill_rect(Rect::new(
+                        x_pos + (tile_width / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        y_pos,
+                        wall_thickness,
+                        (tile_height / 2.0) as u32 + wall_thickness / 2,
+                    ))?;
+                    canvas.fill_rect(Rect::new(
+                        x_pos + (tile_width / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        y_pos + (tile_height / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        (tile_width / 2.0) as u32 + wall_thickness / 2,
+                        wall_thickness,
+                    ))?;
+                }
+                MazeTile::WallCornerSW => {
+                    // Bottom-left corner: vertical up from bottom, horizontal right
+                    canvas.fill_rect(Rect::new(
+                        x_pos + (tile_width / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        y_pos + (tile_height / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        wall_thickness,
+                        (tile_height / 2.0) as u32 + wall_thickness / 2,
+                    ))?;
+                    canvas.fill_rect(Rect::new(
+                        x_pos,
+                        y_pos + (tile_height / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        (tile_width / 2.0) as u32 + wall_thickness / 2,
+                        wall_thickness,
+                    ))?;
+                }
+                MazeTile::WallCornerSE => {
+                    // Bottom-right corner: vertical up from bottom, horizontal left
+                    canvas.fill_rect(Rect::new(
+                        x_pos + (tile_width / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        y_pos + (tile_height / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        wall_thickness,
+                        (tile_height / 2.0) as u32 + wall_thickness / 2,
+                    ))?;
+                    canvas.fill_rect(Rect::new(
+                        x_pos + (tile_width / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        y_pos + (tile_height / 2.0) as i32 - (wall_thickness / 2) as i32,
+                        (tile_width / 2.0) as u32 + wall_thickness / 2,
+                        wall_thickness,
+                    ))?;
+                }
+                MazeTile::Empty => {} // No drawing for empty tiles
+            }
+        }
+    }
+    Ok(())
 }
 
-fn adjust_player_position_delete_me_later(tile_width: f32, tile_height: f32, player_pos: &mut (f32, f32), player_direction: &mut (f32, f32), last_direction: &mut (f32, f32)) {
+fn adjust_player_position_delete_me_later(
+    tile_width: f32,
+    tile_height: f32,
+    player_pos: &mut (f32, f32),
+    player_direction: &mut (f32, f32),
+    last_direction: &mut (f32, f32),
+) {
     // Check if the direction has changed
     if *player_direction != *last_direction {
         if player_direction.0 != 0.0 {
             // Moving horizontally, re-center y position
-            player_pos.0 =
-                ((player_pos.0 / tile_width).round() * tile_width) + tile_width / 2.0;
+            player_pos.0 = ((player_pos.0 / tile_width).round() * tile_width) + tile_width / 2.0;
         }
         if player_direction.1 != 0.0 {
             // Moving vertically, re-center x position
-            player_pos.1 =
-                ((player_pos.1 / tile_height).round() * tile_height) + tile_height / 2.0;
+            player_pos.1 = ((player_pos.1 / tile_height).round() * tile_height) + tile_height / 2.0;
         }
         *last_direction = *player_direction;
     }
@@ -167,7 +332,11 @@ fn clear_background(canvas: &mut WindowCanvas) {
     canvas.clear();
 }
 
-fn update_pacman_mouth_angle(pacman_mouth_opening: &mut bool, pacman_mouth_angle: &mut f32, pacman_mouth_speed: f32) {
+fn update_pacman_mouth_angle(
+    pacman_mouth_opening: &mut bool,
+    pacman_mouth_angle: &mut f32,
+    pacman_mouth_speed: f32,
+) {
     if *pacman_mouth_opening {
         *pacman_mouth_angle += pacman_mouth_speed;
         if *pacman_mouth_angle >= 70.0 {
@@ -176,7 +345,7 @@ fn update_pacman_mouth_angle(pacman_mouth_opening: &mut bool, pacman_mouth_angle
         }
     } else {
         *pacman_mouth_angle -= pacman_mouth_speed;
-        if *pacman_mouth_angle  <= 5.0 {
+        if *pacman_mouth_angle <= 5.0 {
             *pacman_mouth_angle = 5.0;
             *pacman_mouth_opening = true;
         }
@@ -276,7 +445,6 @@ fn draw_pacman(
     Ok(())
 }
 
-
 fn handle_keypress(player_direction: &mut (f32, f32), event_pump: &sdl2::EventPump) {
     // Handle key presses
     let keys: Vec<Keycode> = event_pump
@@ -303,13 +471,38 @@ fn handle_keypress(player_direction: &mut (f32, f32), event_pump: &sdl2::EventPu
     }
 }
 
+// fn update_player_position(player_pos: &mut (f32, f32), player_direction: &(f32, f32), speed: f32) {
+//     player_pos.0 += speed * player_direction.0;
+//     player_pos.1 += speed * player_direction.1;
+// }
+
 fn update_player_position(
     player_pos: &mut (f32, f32),
     player_direction: &(f32, f32),
-    speed: f32
+    speed: f32,
+    maze: &Vec<Vec<MazeTile>>,
+    tile_width: f32,
+    tile_height: f32,
+    player_radius: f32,
 ) {
-    player_pos.0 += speed * player_direction.0;
-    player_pos.1 += speed * player_direction.1;
+    let next_x = player_pos.0 + speed * player_direction.0;
+    let next_y = player_pos.1 + speed * player_direction.1;
+
+    let next_tile = get_tile(&(next_x, next_y), tile_width, tile_height, player_radius);
+    let can_move = if let Some((col, row)) = next_tile {
+        if col < maze[0].len() && row < maze.len() {
+            maze[row][col] == MazeTile::Empty
+        } else {
+            true // Allow movement outside maze (for wrapping)
+        }
+    } else {
+        true // No tile means edge case, allow for now
+    };
+
+    if can_move {
+        player_pos.0 = next_x;
+        player_pos.1 = next_y;
+    }
 }
 
 fn render_player_position_hud(
